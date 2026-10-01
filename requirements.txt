@@ -1,0 +1,4 @@
+# Dependências empacotadas na Lambda (boto3 já vem no runtime python3.12)
+pg8000==1.31.2
+PyJWT==2.10.1
+cryptography==44.0.0
