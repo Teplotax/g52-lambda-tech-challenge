@@ -5,7 +5,6 @@ from auth.config import Settings
 from auth.http import error, get_header, get_json_body, get_method, get_path, response
 from auth.logger import JsonLogger
 from auth.repository import ClienteRepository, DatabaseUnavailable
-from auth.secrets import get_secret_string
 from auth.service import AuthService
 from auth.tokens import load_signing_key
 
@@ -19,7 +18,7 @@ def _build_service():
     def signing_key_provider():
         nonlocal signing_key
         if signing_key is None:
-            signing_key = load_signing_key(get_secret_string(settings.jwt_secret_arn))
+            signing_key = load_signing_key(settings.jwt_private_key_pem)
         return signing_key
 
     return AuthService(settings, ClienteRepository(settings), signing_key_provider, JsonLogger)

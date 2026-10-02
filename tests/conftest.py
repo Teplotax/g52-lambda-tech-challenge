@@ -31,8 +31,9 @@ def signing_key():
 @pytest.fixture
 def settings():
     return Settings(
-        db_host="localhost", db_port=5432, db_name="techchallenge", db_secret_arn="arn:db", db_ssl=False,
-        jwt_secret_arn="arn:jwt", jwt_issuer="g52-lambda-auth", jwt_audience="tech-challenge-api",
+        db_host="localhost", db_port=5432, db_name="techchallenge", db_username="techchallenge",
+        db_password="techchallenge", db_ssl=False, jwt_private_key_pem="", jwt_issuer="g52-lambda-auth",
+        jwt_audience="tech-challenge-api",
         jwt_ttl_seconds=3600,
     )
 

@@ -4,8 +4,6 @@ from dataclasses import dataclass
 
 import pg8000.native
 
-from .secrets import get_secret_json
-
 RDS_CA_BUNDLE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "rds-ca-bundle.pem")
 
 _FIND_BY_DOCUMENTO = """
@@ -34,19 +32,16 @@ class ClienteRepository:
         self._conn = None
 
     def _connect(self):
-        if not self.settings.db_host or not self.settings.db_secret_arn:
-            raise DatabaseUnavailable("Banco de dados não configurado (DB_HOST/DB_SECRET_ARN)")
-
-        # formato do segredo gerado pelo rds
-        credentials = get_secret_json(self.settings.db_secret_arn)
+        if not self.settings.db_host or not self.settings.db_username:
+            raise DatabaseUnavailable("Banco de dados não configurado (DB_HOST/DB_USERNAME)")
 
         ssl_context = None
         if self.settings.db_ssl:
             ssl_context = ssl.create_default_context(cafile=RDS_CA_BUNDLE if os.path.exists(RDS_CA_BUNDLE) else None)
 
         return pg8000.native.Connection(
-            user=credentials["username"],
-            password=credentials["password"],
+            user=self.settings.db_username,
+            password=self.settings.db_password,
             host=self.settings.db_host,
             port=self.settings.db_port,
             database=self.settings.db_name,
