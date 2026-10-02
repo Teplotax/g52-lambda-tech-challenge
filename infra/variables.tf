@@ -48,47 +48,12 @@ variable "jwt_ttl_seconds" {
   default = 3600
 }
 
-# banco
-variable "db_host" {
-  type        = string
-  default     = ""
-  description = "Endpoint do RDS. Vazio enquanto o banco gerenciado não existir (a função responde 503)."
-}
-
-variable "db_port" {
-  type    = number
-  default = 5432
-}
-
-variable "db_name" {
-  type    = string
-  default = "techchallenge"
-}
-
-variable "db_secret_arn" {
-  type        = string
-  default     = ""
-  description = "ARN do segredo com as credenciais do banco no formato {\"username\", \"password\"} (padrão do RDS managed master password)."
+# banco, lido do repo g52-infra-rds-tech-challenge
+variable "db_identifier" {
+  type = string
 }
 
 variable "db_ssl" {
   type    = bool
   default = true
-}
-
-# rede
-variable "vpc_id" {
-  type    = string
-  default = ""
-}
-
-variable "subnet_ids" {
-  type    = list(string)
-  default = []
-}
-
-variable "create_secretsmanager_endpoint" {
-  type        = bool
-  default     = false
-  description = "Cria VPC endpoint do Secrets Manager. Necessário quando as subnets da Lambda não têm saída para a internet (NAT)."
 }

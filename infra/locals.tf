@@ -17,10 +17,5 @@ locals {
 
   authorizer_name = "${var.function_name}-authorizer"
 
-  in_vpc = length(var.subnet_ids) > 0
-
-  readable_secret_arns = compact([
-    aws_secretsmanager_secret.jwt_signing_key.arn,
-    var.db_secret_arn,
-  ])
+  db_credentials = jsondecode(data.aws_secretsmanager_secret_version.db.secret_string)
 }

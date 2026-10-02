@@ -11,13 +11,8 @@ output "invoke_arn" {
   value = aws_lambda_function.auth.invoke_arn
 }
 
-output "jwt_signing_key_secret_arn" {
-  value = aws_secretsmanager_secret.jwt_signing_key.arn
-}
-
-# liberar 5432 no sg do rds
 output "security_group_id" {
-  value = local.in_vpc ? aws_security_group.lambda[0].id : null
+  value = aws_security_group.lambda.id
 }
 
 output "authorizer_function_name" {

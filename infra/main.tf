@@ -1,20 +1,27 @@
 data "aws_caller_identity" "current" {}
 
-# chave do jwt, a privada fica no secrets manager
+# chave do jwt, vai pra lambda por env (só fica no state)
 resource "tls_private_key" "jwt" {
   algorithm = "RSA"
   rsa_bits  = 2048
 }
 
-resource "aws_secretsmanager_secret" "jwt_signing_key" {
-  name                    = "${var.function_name}/jwt-signing-key"
-  description             = "Chave privada RS256 usada pela ${var.function_name} para assinar os JWT"
-  recovery_window_in_days = 0
+# banco vem do repo g52-infra-rds-tech-challenge
+data "aws_db_instance" "this" {
+  db_instance_identifier = var.db_identifier
 }
 
-resource "aws_secretsmanager_secret_version" "jwt_signing_key" {
-  secret_id     = aws_secretsmanager_secret.jwt_signing_key.id
-  secret_string = tls_private_key.jwt.private_key_pem
+data "aws_secretsmanager_secret_version" "db" {
+  secret_id = "${var.db_identifier}/credentials"
+}
+
+data "aws_db_subnet_group" "this" {
+  name = data.aws_db_instance.this.db_subnet_group
+}
+
+data "aws_security_group" "rds_clients" {
+  name   = "${var.db_identifier}-clients"
+  vpc_id = data.aws_db_subnet_group.this.vpc_id
 }
 
 data "aws_iam_policy_document" "assume_role" {
@@ -38,30 +45,14 @@ resource "aws_iam_role_policy_attachment" "basic_execution" {
 }
 
 resource "aws_iam_role_policy_attachment" "vpc_access" {
-  count      = local.in_vpc ? 1 : 0
   role       = aws_iam_role.lambda.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }
 
-data "aws_iam_policy_document" "secrets" {
-  statement {
-    actions   = ["secretsmanager:GetSecretValue"]
-    resources = local.readable_secret_arns
-  }
-}
-
-resource "aws_iam_role_policy" "secrets" {
-  name   = "${var.function_name}-secrets"
-  role   = aws_iam_role.lambda.id
-  policy = data.aws_iam_policy_document.secrets.json
-}
-
-# só cria se tiver subnet (lambda na vpc do rds)
 resource "aws_security_group" "lambda" {
-  count       = local.in_vpc ? 1 : 0
   name        = "${var.function_name}-sg"
   description = "Lambda de autenticacao por CPF"
-  vpc_id      = var.vpc_id
+  vpc_id      = data.aws_db_subnet_group.this.vpc_id
 
   egress {
     from_port   = 0
@@ -69,30 +60,6 @@ resource "aws_security_group" "lambda" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-}
-
-resource "aws_security_group" "secretsmanager_endpoint" {
-  count       = local.in_vpc && var.create_secretsmanager_endpoint ? 1 : 0
-  name        = "${var.function_name}-secretsmanager-endpoint-sg"
-  description = "HTTPS da Lambda para o endpoint do Secrets Manager"
-  vpc_id      = var.vpc_id
-
-  ingress {
-    from_port       = 443
-    to_port         = 443
-    protocol        = "tcp"
-    security_groups = [aws_security_group.lambda[0].id]
-  }
-}
-
-resource "aws_vpc_endpoint" "secretsmanager" {
-  count               = local.in_vpc && var.create_secretsmanager_endpoint ? 1 : 0
-  vpc_id              = var.vpc_id
-  service_name        = "com.amazonaws.${var.aws_region}.secretsmanager"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = var.subnet_ids
-  security_group_ids  = [aws_security_group.secretsmanager_endpoint[0].id]
-  private_dns_enabled = true
 }
 
 # ../build é gerado pelo scripts/build.sh
@@ -119,27 +86,26 @@ resource "aws_lambda_function" "auth" {
   filename         = data.archive_file.lambda.output_path
   source_code_hash = data.archive_file.lambda.output_base64sha256
 
+  # sem nat na vpc, então os segredos vão por env em vez de buscar no secrets manager
   environment {
     variables = {
-      SERVICE_NAME    = var.function_name
-      DB_HOST         = var.db_host
-      DB_PORT         = tostring(var.db_port)
-      DB_NAME         = var.db_name
-      DB_SECRET_ARN   = var.db_secret_arn
-      DB_SSL          = tostring(var.db_ssl)
-      JWT_SECRET_ARN  = aws_secretsmanager_secret.jwt_signing_key.arn
-      JWT_ISSUER      = var.jwt_issuer
-      JWT_AUDIENCE    = var.jwt_audience
-      JWT_TTL_SECONDS = tostring(var.jwt_ttl_seconds)
+      SERVICE_NAME        = var.function_name
+      DB_HOST             = data.aws_db_instance.this.address
+      DB_PORT             = tostring(data.aws_db_instance.this.port)
+      DB_NAME             = local.db_credentials.dbname
+      DB_USERNAME         = local.db_credentials.username
+      DB_PASSWORD         = local.db_credentials.password
+      DB_SSL              = tostring(var.db_ssl)
+      JWT_PRIVATE_KEY_PEM = tls_private_key.jwt.private_key_pem
+      JWT_ISSUER          = var.jwt_issuer
+      JWT_AUDIENCE        = var.jwt_audience
+      JWT_TTL_SECONDS     = tostring(var.jwt_ttl_seconds)
     }
   }
 
-  dynamic "vpc_config" {
-    for_each = local.in_vpc ? [1] : []
-    content {
-      subnet_ids         = var.subnet_ids
-      security_group_ids = [aws_security_group.lambda[0].id]
-    }
+  vpc_config {
+    subnet_ids         = data.aws_db_subnet_group.this.subnet_ids
+    security_group_ids = [aws_security_group.lambda.id, data.aws_security_group.rds_clients.id]
   }
 
   tags = local.function_tags
@@ -148,7 +114,6 @@ resource "aws_lambda_function" "auth" {
     aws_cloudwatch_log_group.lambda,
     aws_iam_role_policy_attachment.basic_execution,
     aws_iam_role_policy_attachment.vpc_access,
-    aws_secretsmanager_secret_version.jwt_signing_key,
   ]
 }
 
