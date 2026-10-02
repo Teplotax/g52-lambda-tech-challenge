@@ -57,3 +57,8 @@ variable "db_ssl" {
   type    = bool
   default = true
 }
+
+variable "admin_client_id" {
+  type    = string
+  default = "g52-oficina-admin"
+}

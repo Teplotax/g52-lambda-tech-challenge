@@ -6,6 +6,27 @@ resource "tls_private_key" "jwt" {
   rsa_bits  = 2048
 }
 
+# credencial client_credentials da equipe (token ADMIN)
+# o secret é pra equipe pegar, a lambda só recebe o hash
+resource "random_password" "admin_client_secret" {
+  length  = 40
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "admin_client" {
+  name                    = "${var.function_name}/admin-client"
+  description             = "client_id/client_secret do token administrativo (client_credentials)"
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret_version" "admin_client" {
+  secret_id = aws_secretsmanager_secret.admin_client.id
+  secret_string = jsonencode({
+    client_id     = var.admin_client_id
+    client_secret = random_password.admin_client_secret.result
+  })
+}
+
 # banco vem do repo g52-infra-rds-tech-challenge
 data "aws_db_instance" "this" {
   db_instance_identifier = var.db_identifier
@@ -89,17 +110,19 @@ resource "aws_lambda_function" "auth" {
   # sem nat na vpc, então os segredos vão por env em vez de buscar no secrets manager
   environment {
     variables = {
-      SERVICE_NAME        = var.function_name
-      DB_HOST             = data.aws_db_instance.this.address
-      DB_PORT             = tostring(data.aws_db_instance.this.port)
-      DB_NAME             = local.db_credentials.dbname
-      DB_USERNAME         = local.db_credentials.username
-      DB_PASSWORD         = local.db_credentials.password
-      DB_SSL              = tostring(var.db_ssl)
-      JWT_PRIVATE_KEY_PEM = tls_private_key.jwt.private_key_pem
-      JWT_ISSUER          = var.jwt_issuer
-      JWT_AUDIENCE        = var.jwt_audience
-      JWT_TTL_SECONDS     = tostring(var.jwt_ttl_seconds)
+      SERVICE_NAME               = var.function_name
+      DB_HOST                    = data.aws_db_instance.this.address
+      DB_PORT                    = tostring(data.aws_db_instance.this.port)
+      DB_NAME                    = local.db_credentials.dbname
+      DB_USERNAME                = local.db_credentials.username
+      DB_PASSWORD                = local.db_credentials.password
+      DB_SSL                     = tostring(var.db_ssl)
+      JWT_PRIVATE_KEY_PEM        = tls_private_key.jwt.private_key_pem
+      ADMIN_CLIENT_ID            = var.admin_client_id
+      ADMIN_CLIENT_SECRET_SHA256 = sha256(random_password.admin_client_secret.result)
+      JWT_ISSUER                 = var.jwt_issuer
+      JWT_AUDIENCE               = var.jwt_audience
+      JWT_TTL_SECONDS            = tostring(var.jwt_ttl_seconds)
     }
   }
 

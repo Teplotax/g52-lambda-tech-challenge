@@ -22,3 +22,8 @@ output "authorizer_function_name" {
 output "authorizer_invoke_arn" {
   value = aws_lambda_function.authorizer.invoke_arn
 }
+
+# client_secret do token admin fica nesse secret
+output "admin_client_secret_name" {
+  value = aws_secretsmanager_secret.admin_client.name
+}
