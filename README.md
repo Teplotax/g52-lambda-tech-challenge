@@ -20,14 +20,12 @@ sequenceDiagram
     actor C as Cliente
     participant GW as API Gateway
     participant L as Lambda g52-lambda-auth
-    participant SM as Secrets Manager
     participant DB as RDS PostgreSQL
     participant APP as App (EKS)
 
     C->>GW: POST /auth {"cpf": "..."}
     GW->>L: AWS_PROXY
     L->>L: valida CPF
-    L->>SM: credenciais do banco + chave privada JWT (cache no container)
     L->>DB: SELECT ... FROM clientes WHERE documento = :cpf
     DB-->>L: cliente
     L-->>GW: 200 {access_token, token_type, expires_in}
@@ -43,13 +41,14 @@ sequenceDiagram
 ```
 
 ```
-                      ┌──────────────── VPC ────────────────┐
-API Gateway ──invoke──▶ Lambda (python3.12) ──5432──▶ RDS   │
-                      │      │                              │
-                      └──────┼──────────────────────────────┘
-                             └──HTTPS──▶ Secrets Manager (jwt-signing-key, credenciais do RDS)
+                      ┌──────────────── VPC (subnets do RDS) ────────────────┐
+API Gateway ──invoke──▶ Lambda (python3.12) ──5432/TLS──▶ RDS PostgreSQL     │
+                      │   SG lambda + SG g52-rds-tech-challenge-clients      │
+                      └──────────────────────────────────────────────────────┘
                              └─────────▶ CloudWatch Logs (JSON estruturado)
 ```
+
+A função roda na VPC do RDS para alcançar o banco privado. Essas subnets não têm NAT, então a função não consegue chamar o Secrets Manager em runtime. Por isso a chave privada do JWT e as credenciais do banco chegam por variável de ambiente, que a Lambda guarda criptografada em repouso com KMS. O Terraform lê as credenciais do secret `g52-rds-tech-challenge/credentials` no deploy.
 
 ## Contrato
 
@@ -94,7 +93,7 @@ Se o header `x-correlationid` vier na requisição, ele é propagado. Caso contr
 ## Tecnologias
 
 - Python 3.12 (AWS Lambda), `pg8000` (driver PostgreSQL puro Python), `PyJWT` + `cryptography`
-- AWS Lambda, Secrets Manager, CloudWatch Logs, IAM, VPC
+- AWS Lambda, RDS PostgreSQL, CloudWatch Logs, IAM, VPC
 - Terraform (state no S3 `g52-terraform-state-dev-<account>`)
 - GitHub Actions com OIDC (role `github-actions-terraform-dev`)
 
@@ -109,7 +108,6 @@ src/
     service.py        # regras de autenticação
     repository.py     # consulta de clientes no PostgreSQL
     tokens.py         # JWT RS256 + JWKS
-    secrets.py        # Secrets Manager com cache
     logger.py         # logs JSON
     http.py           # utilitários de evento/resposta do API Gateway
     config.py         # variáveis de ambiente
@@ -134,11 +132,11 @@ Para gerar o pacote da Lambda (o mesmo usado pelo pipeline), rode `sh scripts/bu
 | Recurso | Descrição |
 |---|---|
 | `aws_lambda_function.auth` | Função `python3.12`, handler `handler.lambda_handler` |
-| `tls_private_key.jwt` + `aws_secretsmanager_secret.jwt_signing_key` | Chave RSA 2048 de assinatura do JWT |
-| `aws_iam_role.lambda` | Execução básica, acesso à VPC e leitura dos segredos (JWT e banco) |
+| `tls_private_key.jwt` | Chave RSA 2048 de assinatura do JWT (fica só no state do Terraform e na env da função) |
+| `data.aws_db_instance` / `data.aws_secretsmanager_secret_version` / `data.aws_db_subnet_group` | Endpoint, credenciais e subnets do RDS (repositório `g52-infra-rds-tech-challenge`) |
+| `aws_iam_role.lambda` | Execução básica e acesso à VPC |
 | `aws_cloudwatch_log_group.lambda` | Logs com retenção configurável |
-| `aws_security_group.lambda` | SG da função, para liberar no SG do RDS (quando estiver na VPC) |
-| `aws_vpc_endpoint.secretsmanager` | Opcional, para subnets sem NAT |
+| `aws_security_group.lambda` | SG da função (saída liberada). A função também anexa o SG `g52-rds-tech-challenge-clients`, o único aceito pelo RDS |
 | `aws_lambda_permission.api_gateway` | Permite que o API Gateway invoque a função |
 | `aws_lambda_function.authorizer` | `g52-lambda-auth-authorizer`, handler `authorizer.lambda_handler`, recebe a chave pública por variável de ambiente (sem acesso a segredos ou ao banco, fora da VPC) |
 | `aws_iam_role.authorizer` | Somente execução básica (logs) |
@@ -148,15 +146,12 @@ Para gerar o pacote da Lambda (o mesmo usado pelo pipeline), rode `sh scripts/bu
 | Variável | Descrição |
 |---|---|
 | `function_name` | Nome da função; também compõe a key do state |
-| `db_host`, `db_port`, `db_name` | Endpoint do RDS (outputs do repositório de infra do banco) |
-| `db_secret_arn` | Segredo com `{"username", "password"}`, no formato do RDS managed master password |
+| `db_identifier` | Identificador do RDS. A partir dele o Terraform encontra o endpoint, o secret `<id>/credentials`, as subnets e o SG `<id>-clients` |
 | `db_ssl` | Conexão TLS verificada com o CA bundle do RDS (incluído no pacote pelo build) |
-| `vpc_id`, `subnet_ids` | Subnets privadas da VPC do RDS. Se ficar vazio, a função roda fora da VPC |
-| `create_secretsmanager_endpoint` | Cria VPC endpoint do Secrets Manager quando as subnets não têm saída para a internet |
 | `jwt_issuer`, `jwt_audience`, `jwt_ttl_seconds` | Parâmetros do token |
 | `destroy` | `true` faz o pipeline executar `terraform destroy` |
 
-Enquanto `db_host` e `db_secret_arn` estiverem vazios, `/.well-known/jwks.json` funciona e `/auth` responde `503`.
+O RDS precisa existir antes do deploy desta função, porque o `terraform plan` lê os dados dele.
 
 ### Outputs
 
@@ -164,8 +159,7 @@ Enquanto `db_host` e `db_secret_arn` estiverem vazios, `/.well-known/jwks.json` 
 |---|---|
 | `invoke_arn` | Integração `AWS_PROXY` no API Gateway (`POST /auth`, `GET /.well-known/jwks.json`) |
 | `function_name` / `function_arn` | Referência da função |
-| `jwt_signing_key_secret_arn` | Segredo da chave privada |
-| `security_group_id` | Liberar ingress 5432 no SG do RDS |
+| `security_group_id` | SG da função |
 | `authorizer_function_name` / `authorizer_invoke_arn` | Authorizer referenciado no `securitySchemes` do contrato OpenAPI |
 
 ## Pipeline CI/CD
