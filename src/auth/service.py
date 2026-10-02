@@ -33,7 +33,11 @@ class AuthService:
             log.warning("Cliente não encontrado", event="auth.cliente_not_found", cpf=mask_cpf(cpf))
             return _error(401, "Unauthorized", "Cliente não encontrado")
 
-        # não tem coluna de status ainda, então só barra quem não é CPF
+        if not cliente.ativo:
+            log.warning("Cliente inativo", event="auth.cliente_inativo", clienteId=cliente.id)
+            return _error(403, "Forbidden", "Cliente inativo")
+
+        # cnpj não autentica por cpf
         if (cliente.tipo_documento or "").upper() != "CPF":
             log.warning("Cliente sem permissão para autenticar por CPF", event="auth.cliente_forbidden",
                         clienteId=cliente.id, tipoDocumento=cliente.tipo_documento)

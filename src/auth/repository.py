@@ -7,7 +7,7 @@ import pg8000.native
 RDS_CA_BUNDLE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "rds-ca-bundle.pem")
 
 _FIND_BY_DOCUMENTO = """
-    SELECT id, nome, nome_social, email, tipo_documento
+    SELECT id, nome, nome_social, email, tipo_documento, ativo
       FROM clientes
      WHERE documento = :documento
 """
@@ -20,6 +20,7 @@ class Cliente:
     nome_social: str
     email: str
     tipo_documento: str
+    ativo: bool
 
 
 class DatabaseUnavailable(Exception):

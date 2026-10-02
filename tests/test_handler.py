@@ -72,6 +72,12 @@ def test_cliente_nao_habilitado_retorna_403(service):
     assert body["exceptionType"] == "Forbidden"
 
 
+def test_cliente_inativo_retorna_403(service):
+    status, body, _ = call(service, rest_event("POST", "/auth", {"cpf": "529.982.247-25"}))
+    assert status == 403
+    assert body == {"message": "Cliente inativo", "exceptionType": "Forbidden"}
+
+
 def test_propaga_correlation_id(service):
     event = rest_event("POST", "/auth", {"cpf": "55563271064"}, headers={"X-CorrelationId": "abc-123"})
     _, _, headers = call(service, event)

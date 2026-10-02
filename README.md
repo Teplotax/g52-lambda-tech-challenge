@@ -5,7 +5,7 @@ Function Serverless (AWS Lambda, Python 3.12) de **autenticação por CPF** do T
 A função:
 
 1. **Valida o CPF** informado (formato e dígitos verificadores);
-2. **Consulta o cliente** na tabela `clientes` do PostgreSQL gerenciado (existência e status);
+2. **Consulta o cliente** na tabela `clientes` do PostgreSQL gerenciado: o cliente precisa existir e estar ativo (`ativo`, coluna criada na migration `V3` da app);
 3. **Gera e devolve um JWT** (RS256) para consumo das APIs protegidas da aplicação principal.
 
 A chave pública de validação do token é publicada em formato **JWKS**. Assim, a aplicação Spring Boot valida os tokens sem compartilhar segredos.
@@ -63,7 +63,7 @@ A função roda na VPC do RDS para alcançar o banco privado. Essas subnets não
 | `200` | Cliente encontrado e habilitado | `{"access_token": "<jwt>", "token_type": "Bearer", "expires_in": 3600}` |
 | `400` | Corpo inválido ou CPF inválido | `{"message": "CPF inválido", "exceptionType": "BadRequest"}` |
 | `401` | CPF não cadastrado | `{"message": "Cliente não encontrado", "exceptionType": "Unauthorized"}` |
-| `403` | Cliente não habilitado para autenticar por CPF (`tipo_documento` ≠ `CPF`) | `{"message": "...", "exceptionType": "Forbidden"}` |
+| `403` | Cliente inativo (`clientes.ativo = false`) ou não habilitado para autenticar por CPF (`tipo_documento` ≠ `CPF`) | `{"message": "...", "exceptionType": "Forbidden"}` |
 | `503` | Banco indisponível ou não configurado | `{"message": "...", "exceptionType": "ServiceUnavailable"}` |
 
 Os erros seguem o `ErrorMessage` do contrato da API (`g52-api-tech-challenge-v1-ext`).

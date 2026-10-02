@@ -9,8 +9,9 @@ from auth.service import AuthService
 from auth.tokens import load_signing_key
 
 CLIENTES = {
-    "55563271064": Cliente(1, "Marcos Antônio Oliveira", "Maria Oliveira", "maria.oliveira@email.com", "CPF"),
-    "84673421027": Cliente(2, "Jonathan Douglas Pereira", None, "carlos.pereira@email.com", "CNPJ"),
+    "55563271064": Cliente(1, "Marcos Antônio Oliveira", "Maria Oliveira", "maria.oliveira@email.com", "CPF", True),
+    "84673421027": Cliente(2, "Jonathan Douglas Pereira", None, "carlos.pereira@email.com", "CNPJ", True),
+    "52998224725": Cliente(3, "Cliente Inativo", None, "inativo@email.com", "CPF", False),
 }
 
 
