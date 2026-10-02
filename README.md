@@ -8,9 +8,16 @@ A função:
 2. **Consulta o cliente** na tabela `clientes` do PostgreSQL gerenciado: o cliente precisa existir e estar ativo (`ativo`, coluna criada na migration `V3` da app);
 3. **Gera e devolve um JWT** (RS256) para consumo das APIs protegidas da aplicação principal.
 
+Ela também emite o **token administrativo** da equipe da oficina (grant `client_credentials` do OAuth2). Os dois tokens são assinados pela mesma chave e se diferenciam pela claim `roles`:
+
+| Token | Como obter | `roles` | O que acessa |
+|---|---|---|---|
+| Cliente | `POST /auth` com `{"cpf"}` | `["CLIENTE"]` | Consultar as próprias OS e aprovar o orçamento (`GET /ordensDeServico`, `GET /ordensDeServico/{id}`, `POST /ordensDeServico/{id}/aprovar`) |
+| Administrativo | `POST /auth/token` com `client_credentials` | `["ADMIN"]` | Todas as rotas (cadastros, estoque, ciclo da OS) |
+
 A chave pública de validação do token é publicada em formato **JWKS**. Assim, a aplicação Spring Boot valida os tokens sem compartilhar segredos.
 
-O mesmo pacote também traz o **Lambda Authorizer** (`authorizer.lambda_handler`). É uma segunda função, do tipo TOKEN, que o API Gateway chama antes de encaminhar as rotas protegidas: ela valida a assinatura, a expiração, o emissor e a audiência do JWT e responde `401` quando o token for inválido.
+O mesmo pacote também traz o **Lambda Authorizer** (`authorizer.lambda_handler`). É uma segunda função, do tipo TOKEN, que o API Gateway chama antes de encaminhar as rotas protegidas. Ela valida a assinatura, a expiração, o emissor e a audiência do JWT, e responde `401` quando o token for inválido. A policy devolvida libera só as rotas da role do token: um token de cliente numa rota administrativa recebe `403` do próprio Gateway. A aplicação repete essa checagem e ainda garante que o cliente só acesse as próprias OS.
 
 ## Arquitetura
 
@@ -82,6 +89,26 @@ Claims do token:
 
 O header do token traz o `kid` (thumbprint RFC 7638 da chave pública).
 
+### `POST /auth/token`
+
+Grant `client_credentials` (RFC 6749). As credenciais vão no corpo (`application/x-www-form-urlencoded` ou JSON) ou no header `Authorization: Basic base64(client_id:client_secret)`:
+
+```
+grant_type=client_credentials&client_id=g52-oficina-admin&client_secret=<secret>
+```
+
+| Status | Quando |
+|---|---|
+| `200` | `{"access_token": "<jwt>", "token_type": "Bearer", "expires_in": 3600}`, com `sub` = `client_id` e `roles: ["ADMIN"]` |
+| `400` | `grant_type` diferente de `client_credentials` |
+| `401` | `client_id` ou `client_secret` inválido |
+
+O `client_secret` é gerado pelo Terraform e fica no secret `g52-lambda-auth/admin-client`. A função recebe só o hash SHA-256 dele por variável de ambiente e compara em tempo constante:
+
+```bash
+aws secretsmanager get-secret-value --secret-id g52-lambda-auth/admin-client --query SecretString --output text
+```
+
 ### `GET /.well-known/jwks.json`
 
 Retorna a chave pública RS256 (`{"keys": [{"kty": "RSA", "kid": "...", "n": "...", "e": "AQAB", ...}]}`).
@@ -140,6 +167,7 @@ Para gerar o pacote da Lambda (o mesmo usado pelo pipeline), rode `sh scripts/bu
 | `aws_lambda_permission.api_gateway` | Permite que o API Gateway invoque a função |
 | `aws_lambda_function.authorizer` | `g52-lambda-auth-authorizer`, handler `authorizer.lambda_handler`, recebe a chave pública por variável de ambiente (sem acesso a segredos ou ao banco, fora da VPC) |
 | `aws_iam_role.authorizer` | Somente execução básica (logs) |
+| `random_password.admin_client_secret` + `aws_secretsmanager_secret.admin_client` | Credencial `client_credentials` do token administrativo |
 
 ### Variáveis (`infra/inventories/dev/terraform.tfvars`)
 
@@ -149,6 +177,7 @@ Para gerar o pacote da Lambda (o mesmo usado pelo pipeline), rode `sh scripts/bu
 | `db_identifier` | Identificador do RDS. A partir dele o Terraform encontra o endpoint, o secret `<id>/credentials`, as subnets e o SG `<id>-clients` |
 | `db_ssl` | Conexão TLS verificada com o CA bundle do RDS (incluído no pacote pelo build) |
 | `jwt_issuer`, `jwt_audience`, `jwt_ttl_seconds` | Parâmetros do token |
+| `admin_client_id` | `client_id` do token administrativo (padrão `g52-oficina-admin`) |
 | `destroy` | `true` faz o pipeline executar `terraform destroy` |
 
 O RDS precisa existir antes do deploy desta função, porque o `terraform plan` lê os dados dele.
@@ -157,7 +186,8 @@ O RDS precisa existir antes do deploy desta função, porque o `terraform plan` 
 
 | Output | Uso |
 |---|---|
-| `invoke_arn` | Integração `AWS_PROXY` no API Gateway (`POST /auth`, `GET /.well-known/jwks.json`) |
+| `invoke_arn` | Integração `AWS_PROXY` no API Gateway (`POST /auth`, `POST /auth/token`, `GET /.well-known/jwks.json`) |
+| `admin_client_secret_name` | Secret com o `client_id`/`client_secret` do token administrativo |
 | `function_name` / `function_arn` | Referência da função |
 | `security_group_id` | SG da função |
 | `authorizer_function_name` / `authorizer_invoke_arn` | Authorizer referenciado no `securitySchemes` do contrato OpenAPI |
