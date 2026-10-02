@@ -20,11 +20,28 @@ def _extract_token(authorization):
     return token.strip() if scheme.lower() == "bearer" and token.strip() else None
 
 
-def _api_wildcard_arn(method_arn):
-    # libera o stage inteiro, senão o cache do authorizer quebra em outras rotas
+# rotas que o token de cliente (cpf) pode chamar; o resto é só admin
+CLIENTE_ROUTES = [
+    "GET/ordensDeServico",
+    "GET/ordensDeServico/*",
+    "POST/ordensDeServico/*/aprovar",
+]
+
+
+def _stage_arn(method_arn):
+    # arn:aws:execute-api:{region}:{account}:{apiId}/{stage}/{method}/{path}
     prefix, _, path = method_arn.partition("/")
-    stage = path.split("/", 1)[0]
-    return f"{prefix}/{stage}/*/*"
+    return f"{prefix}/{path.split('/', 1)[0]}"
+
+
+# a policy cobre todas as rotas da role, senão o cache do authorizer quebra em outras rotas
+def _allowed_resources(method_arn, roles):
+    stage = _stage_arn(method_arn)
+    if "ADMIN" in roles:
+        return [f"{stage}/*/*"]
+    if "CLIENTE" in roles:
+        return [f"{stage}/{route}" for route in CLIENTE_ROUTES]
+    return []
 
 
 def _policy(principal_id, effect, resource, context=None):
@@ -63,10 +80,14 @@ def lambda_handler(event, context, public_key=None):
                     errorType=type(exc).__name__, methodArn=method_arn)
         raise Exception("Unauthorized")
 
-    log.info("Token válido", event="authorizer.allowed", clienteId=claims["sub"], methodArn=method_arn)
-    return _policy(
-        claims["sub"],
-        "Allow",
-        _api_wildcard_arn(method_arn),
-        {"clienteId": claims["sub"], "cpf": claims.get("cpf", "")},
-    )
+    roles = claims.get("roles") or []
+    resources = _allowed_resources(method_arn, roles)
+    context = {"sub": claims["sub"], "roles": ",".join(roles), "cpf": claims.get("cpf", "")}
+
+    if not resources:
+        # token válido mas sem role conhecida: gateway responde 403
+        log.warning("Token sem role", event="authorizer.no_role", sub=claims["sub"], methodArn=method_arn)
+        return _policy(claims["sub"], "Deny", f"{_stage_arn(method_arn)}/*/*", context)
+
+    log.info("Token válido", event="authorizer.allowed", sub=claims["sub"], roles=roles, methodArn=method_arn)
+    return _policy(claims["sub"], "Allow", resources, context)

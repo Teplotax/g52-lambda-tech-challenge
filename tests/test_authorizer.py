@@ -15,8 +15,12 @@ def public_key(signing_key):
     return signing_key.private_key.public_key()
 
 
-def token(signing_key, issuer="g52-lambda-auth", audience="tech-challenge-api", ttl=3600, now=None):
-    claims = {"sub": "1", "cpf": "55563271064", "roles": ["CLIENTE"]}
+STAGE = "arn:aws:execute-api:us-east-1:679084116705:uqjslc5lb8/dev"
+
+
+def token(signing_key, issuer="g52-lambda-auth", audience="tech-challenge-api", ttl=3600, now=None,
+          roles=("CLIENTE",)):
+    claims = {"sub": "1", "cpf": "55563271064", "roles": list(roles)}
     return sign_token(claims, signing_key, issuer=issuer, audience=audience, ttl_seconds=ttl, now=now)
 
 
@@ -25,14 +29,31 @@ def authorize(authorization, public_key):
     return lambda_handler(event, None, public_key=public_key)
 
 
-def test_token_valido_libera_todas_as_rotas_do_stage(signing_key, public_key):
+def test_token_admin_libera_todas_as_rotas_do_stage(signing_key, public_key):
+    result = authorize(f"Bearer {token(signing_key, roles=['ADMIN'])}", public_key)
+
+    statement = result["policyDocument"]["Statement"][0]
+    assert statement["Effect"] == "Allow"
+    assert statement["Resource"] == [f"{STAGE}/*/*"]
+
+
+def test_token_cliente_libera_so_consulta_e_aprovacao_de_os(signing_key, public_key):
     result = authorize(f"Bearer {token(signing_key)}", public_key)
 
     statement = result["policyDocument"]["Statement"][0]
     assert result["principalId"] == "1"
     assert statement["Effect"] == "Allow"
-    assert statement["Resource"] == "arn:aws:execute-api:us-east-1:679084116705:uqjslc5lb8/dev/*/*"
-    assert result["context"] == {"clienteId": "1", "cpf": "55563271064"}
+    assert statement["Resource"] == [
+        f"{STAGE}/GET/ordensDeServico",
+        f"{STAGE}/GET/ordensDeServico/*",
+        f"{STAGE}/POST/ordensDeServico/*/aprovar",
+    ]
+    assert result["context"] == {"sub": "1", "roles": "CLIENTE", "cpf": "55563271064"}
+
+
+def test_token_sem_role_conhecida_eh_negado(signing_key, public_key):
+    result = authorize(f"Bearer {token(signing_key, roles=['OUTRA'])}", public_key)
+    assert result["policyDocument"]["Statement"][0]["Effect"] == "Deny"
 
 
 def test_aceita_esquema_bearer_case_insensitive(signing_key, public_key):
