@@ -11,6 +11,8 @@ class Settings:
     db_password: str
     db_ssl: bool
     jwt_private_key_pem: str
+    admin_client_id: str
+    admin_client_secret_sha256: str
     jwt_issuer: str
     jwt_audience: str
     jwt_ttl_seconds: int
@@ -26,6 +28,8 @@ class Settings:
             db_password=env("DB_PASSWORD", ""),
             db_ssl=env("DB_SSL", "true").lower() == "true",
             jwt_private_key_pem=env("JWT_PRIVATE_KEY_PEM", ""),
+            admin_client_id=env("ADMIN_CLIENT_ID", ""),
+            admin_client_secret_sha256=env("ADMIN_CLIENT_SECRET_SHA256", ""),
             jwt_issuer=env("JWT_ISSUER", "g52-lambda-auth"),
             jwt_audience=env("JWT_AUDIENCE", "tech-challenge-api"),
             jwt_ttl_seconds=int(env("JWT_TTL_SECONDS", "3600")),

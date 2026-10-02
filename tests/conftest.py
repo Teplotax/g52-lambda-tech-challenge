@@ -34,7 +34,9 @@ def settings():
     return Settings(
         db_host="localhost", db_port=5432, db_name="techchallenge", db_username="techchallenge",
         db_password="techchallenge", db_ssl=False, jwt_private_key_pem="", jwt_issuer="g52-lambda-auth",
-        jwt_audience="tech-challenge-api",
+        jwt_audience="tech-challenge-api", admin_client_id="g52-oficina-admin",
+        # sha256 de "segredo-admin"
+        admin_client_secret_sha256="fc57ea62204f539336b426a626578e00e2cf0471adfa9d09c9304cfb05b1f3a1",
         jwt_ttl_seconds=3600,
     )
 

@@ -1,8 +1,9 @@
-# POST /auth e GET /.well-known/jwks.json
+# POST /auth (cpf), POST /auth/token (client_credentials) e GET /.well-known/jwks.json
 import uuid
 
 from auth.config import Settings
-from auth.http import error, get_header, get_json_body, get_method, get_path, response
+from auth.http import (error, get_basic_credentials, get_form_body, get_header, get_json_body, get_method,
+                       get_path, response)
 from auth.logger import JsonLogger
 from auth.repository import ClienteRepository, DatabaseUnavailable
 from auth.service import AuthService
@@ -44,6 +45,18 @@ def lambda_handler(event, context, service=None):
             result = service.jwks()
             return response(result.status_code, result.body, correlation_id,
                             {"Cache-Control": "public, max-age=300"})
+
+        if path.endswith("/auth/token"):
+            if method != "POST":
+                return error(405, "MethodNotAllowed", "Método não permitido", correlation_id)
+            form = get_form_body(event)
+            if form.get("grant_type") != "client_credentials":
+                return error(400, "BadRequest", "grant_type deve ser client_credentials", correlation_id)
+            client_id, client_secret = get_basic_credentials(event)
+            if client_id is None:
+                client_id, client_secret = form.get("client_id"), form.get("client_secret")
+            result = service.authenticate_client(client_id, client_secret, correlation_id)
+            return response(result.status_code, result.body, correlation_id)
 
         if path.endswith("/auth"):
             if method != "POST":

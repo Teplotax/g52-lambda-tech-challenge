@@ -1,3 +1,4 @@
+import base64
 import json
 
 import jwt
@@ -119,3 +120,63 @@ def test_banco_indisponivel_retorna_503(service):
     status, body, _ = call(service, rest_event("POST", "/auth", {"cpf": "55563271064"}))
     assert status == 503
     assert body["exceptionType"] == "ServiceUnavailable"
+
+
+def form_event(body, headers=None):
+    event = rest_event("POST", "/auth/token", headers={"Content-Type": "application/x-www-form-urlencoded",
+                                                       **(headers or {})})
+    event["body"] = body
+    return event
+
+
+def test_client_credentials_emite_token_admin(service, signing_key):
+    status, body, _ = call(service, form_event(
+        "grant_type=client_credentials&client_id=g52-oficina-admin&client_secret=segredo-admin"))
+
+    assert status == 200
+    claims = jwt.decode(body["access_token"], signing_key.private_key.public_key(), algorithms=["RS256"],
+                        audience="tech-challenge-api", issuer="g52-lambda-auth")
+    assert claims["sub"] == "g52-oficina-admin"
+    assert claims["roles"] == ["ADMIN"]
+    assert "cpf" not in claims
+
+
+def test_client_credentials_via_basic_auth(service):
+    basic = base64.b64encode(b"g52-oficina-admin:segredo-admin").decode()
+    status, _, _ = call(service, form_event("grant_type=client_credentials",
+                                            headers={"Authorization": f"Basic {basic}"}))
+    assert status == 200
+
+
+def test_client_credentials_aceita_json(service):
+    event = rest_event("POST", "/auth/token", {"grant_type": "client_credentials",
+                                               "client_id": "g52-oficina-admin",
+                                               "client_secret": "segredo-admin"},
+                       headers={"Content-Type": "application/json"})
+    status, _, _ = call(service, event)
+    assert status == 200
+
+
+def test_client_secret_errado_retorna_401(service):
+    status, body, _ = call(service, form_event(
+        "grant_type=client_credentials&client_id=g52-oficina-admin&client_secret=errado"))
+    assert status == 401
+    assert body["exceptionType"] == "Unauthorized"
+
+
+def test_client_id_errado_retorna_401(service):
+    status, _, _ = call(service, form_event(
+        "grant_type=client_credentials&client_id=outro&client_secret=segredo-admin"))
+    assert status == 401
+
+
+def test_grant_type_invalido_retorna_400(service):
+    status, _, _ = call(service, form_event("grant_type=password&username=a&password=b"))
+    assert status == 400
+
+
+def test_client_credentials_sem_configuracao_retorna_401(service):
+    from dataclasses import replace
+    service.settings = replace(service.settings, admin_client_id="", admin_client_secret_sha256="")
+    status, _, _ = call(service, form_event("grant_type=client_credentials&client_id=&client_secret="))
+    assert status == 401
