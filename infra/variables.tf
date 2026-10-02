@@ -16,7 +16,7 @@ variable "destroy" {
   default = false
 }
 
-# Lambda
+# lambda
 variable "memory_size" {
   type    = number
   default = 256
@@ -32,7 +32,7 @@ variable "log_retention_days" {
   default = 7
 }
 
-# JWT
+# jwt
 variable "jwt_issuer" {
   type    = string
   default = "g52-lambda-auth"
@@ -48,7 +48,7 @@ variable "jwt_ttl_seconds" {
   default = 3600
 }
 
-# Banco de dados gerenciado (provisionado pelo repositório de infra do banco)
+# banco
 variable "db_host" {
   type        = string
   default     = ""
@@ -76,7 +76,7 @@ variable "db_ssl" {
   default = true
 }
 
-# Rede: a função roda na VPC do banco quando subnets são informadas
+# rede
 variable "vpc_id" {
   type    = string
   default = ""

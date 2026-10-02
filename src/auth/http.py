@@ -1,4 +1,4 @@
-"""Utilitários para eventos do API Gateway (REST payload v1 e HTTP API payload v2)."""
+# aceita evento do api gateway rest (v1) e http api (v2)
 import base64
 import json
 
@@ -37,7 +37,7 @@ def response(status_code, body, correlation_id, extra_headers=None):
 
 
 def error(status_code, exception_type, message, correlation_id):
-    # Mesmo formato do ErrorMessage definido no contrato da API (g52-api-tech-challenge-v1-ext)
+    # mesmo formato do ErrorMessage do contrato
     return response(status_code, error_body(exception_type, message), correlation_id)
 
 

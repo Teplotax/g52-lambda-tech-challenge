@@ -1,4 +1,3 @@
-"""Consulta de clientes no PostgreSQL gerenciado (tabela `clientes` da aplicação principal)."""
 import os
 import ssl
 from dataclasses import dataclass
@@ -38,7 +37,7 @@ class ClienteRepository:
         if not self.settings.db_host or not self.settings.db_secret_arn:
             raise DatabaseUnavailable("Banco de dados não configurado (DB_HOST/DB_SECRET_ARN)")
 
-        # Formato do segredo gerenciado pelo RDS: {"username": "...", "password": "..."}
+        # formato do segredo gerado pelo rds
         credentials = get_secret_json(self.settings.db_secret_arn)
 
         ssl_context = None
@@ -56,7 +55,7 @@ class ClienteRepository:
         )
 
     def _run(self, sql, **params):
-        # A conexão é reaproveitada entre invocações; se caiu, reconecta uma vez
+        # reaproveita a conexão, se caiu tenta de novo uma vez
         for attempt in range(2):
             try:
                 if self._conn is None:

@@ -1,4 +1,3 @@
-"""Logs estruturados em JSON (uma linha por evento) com correlation id."""
 import json
 import os
 import sys

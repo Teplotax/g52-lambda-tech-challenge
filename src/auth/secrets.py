@@ -1,4 +1,3 @@
-"""Leitura de segredos do Secrets Manager com cache entre invocações (container quente)."""
 import json
 
 import boto3

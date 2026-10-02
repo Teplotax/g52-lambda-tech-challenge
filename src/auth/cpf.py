@@ -1,4 +1,3 @@
-"""Validação de CPF (formato + dígitos verificadores)."""
 import re
 
 
@@ -19,7 +18,7 @@ def is_valid_cpf(value):
     cpf = normalize_cpf(value)
     if not cpf:
         return False
-    # Sequências repetidas (000.000.000-00, 111...) passam no cálculo mas são inválidas
+    # 111.111.111-11 etc passam no cálculo
     if cpf == cpf[0] * 11:
         return False
     return _check_digit(cpf, 9) == int(cpf[9]) and _check_digit(cpf, 10) == int(cpf[10])

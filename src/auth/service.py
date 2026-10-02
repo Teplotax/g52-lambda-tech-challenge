@@ -1,4 +1,3 @@
-"""Regras de autenticação por CPF: validar CPF, verificar cliente na base e emitir o JWT."""
 from dataclasses import dataclass
 
 from .cpf import is_valid_cpf, mask_cpf, normalize_cpf
@@ -34,7 +33,7 @@ class AuthService:
             log.warning("Cliente não encontrado", event="auth.cliente_not_found", cpf=mask_cpf(cpf))
             return _error(401, "Unauthorized", "Cliente não encontrado")
 
-        # Status do cliente: só clientes pessoa física (documento CPF) podem se autenticar por CPF
+        # não tem coluna de status ainda, então só barra quem não é CPF
         if (cliente.tipo_documento or "").upper() != "CPF":
             log.warning("Cliente sem permissão para autenticar por CPF", event="auth.cliente_forbidden",
                         clienteId=cliente.id, tipoDocumento=cliente.tipo_documento)

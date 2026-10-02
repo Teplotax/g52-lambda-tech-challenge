@@ -8,7 +8,9 @@ A função:
 2. **Consulta o cliente** na tabela `clientes` do PostgreSQL gerenciado (existência e status);
 3. **Gera e devolve um JWT** (RS256) para consumo das APIs protegidas da aplicação principal.
 
-A chave pública de validação do token é publicada em formato **JWKS**. Assim, a aplicação Spring Boot (`spring.security.oauth2.resourceserver.jwt.jwk-set-uri`) ou o API Gateway valida os tokens sem compartilhar segredos.
+A chave pública de validação do token é publicada em formato **JWKS**. Assim, a aplicação Spring Boot valida os tokens sem compartilhar segredos.
+
+O mesmo pacote também traz o **Lambda Authorizer** (`authorizer.lambda_handler`). É uma segunda função, do tipo TOKEN, que o API Gateway chama antes de encaminhar as rotas protegidas: ela valida a assinatura, a expiração, o emissor e a audiência do JWT e responde `401` quando o token for inválido.
 
 ## Arquitetura
 
@@ -31,7 +33,10 @@ sequenceDiagram
     L-->>GW: 200 {access_token, token_type, expires_in}
     GW-->>C: JWT
 
-    C->>GW: GET /ordens-servico (Authorization: Bearer JWT)
+    participant AZ as Lambda Authorizer
+    C->>GW: GET /ordensDeServico (Authorization: Bearer JWT)
+    GW->>AZ: valida JWT (resultado em cache por 5 min)
+    AZ-->>GW: policy Allow (ou 401)
     GW->>APP: encaminha
     APP->>GW: GET /.well-known/jwks.json (cacheado)
     APP-->>C: resposta da API protegida
@@ -98,6 +103,7 @@ Se o header `x-correlationid` vier na requisição, ele é propagado. Caso contr
 ```
 src/
   handler.py          # entrypoint (handler.lambda_handler) e roteamento
+  authorizer.py       # Lambda Authorizer (authorizer.lambda_handler)
   auth/
     cpf.py            # validação de CPF
     service.py        # regras de autenticação
@@ -134,6 +140,8 @@ Para gerar o pacote da Lambda (o mesmo usado pelo pipeline), rode `sh scripts/bu
 | `aws_security_group.lambda` | SG da função, para liberar no SG do RDS (quando estiver na VPC) |
 | `aws_vpc_endpoint.secretsmanager` | Opcional, para subnets sem NAT |
 | `aws_lambda_permission.api_gateway` | Permite que o API Gateway invoque a função |
+| `aws_lambda_function.authorizer` | `g52-lambda-auth-authorizer`, handler `authorizer.lambda_handler`, recebe a chave pública por variável de ambiente (sem acesso a segredos ou ao banco, fora da VPC) |
+| `aws_iam_role.authorizer` | Somente execução básica (logs) |
 
 ### Variáveis (`infra/inventories/dev/terraform.tfvars`)
 
@@ -158,6 +166,7 @@ Enquanto `db_host` e `db_secret_arn` estiverem vazios, `/.well-known/jwks.json` 
 | `function_name` / `function_arn` | Referência da função |
 | `jwt_signing_key_secret_arn` | Segredo da chave privada |
 | `security_group_id` | Liberar ingress 5432 no SG do RDS |
+| `authorizer_function_name` / `authorizer_invoke_arn` | Authorizer referenciado no `securitySchemes` do contrato OpenAPI |
 
 ## Pipeline CI/CD
 

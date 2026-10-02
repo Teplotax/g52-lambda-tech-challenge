@@ -1,4 +1,3 @@
-"""Emissão de JWT RS256 e publicação da chave pública em formato JWKS."""
 import base64
 import hashlib
 import json
@@ -6,7 +5,7 @@ import time
 from dataclasses import dataclass
 
 import jwt
-from cryptography.hazmat.primitives.serialization import load_pem_private_key
+from cryptography.hazmat.primitives.serialization import load_pem_private_key, load_pem_public_key
 from jwt.algorithms import RSAAlgorithm
 
 
@@ -18,7 +17,7 @@ class SigningKey:
 
 
 def _thumbprint(jwk):
-    # RFC 7638: hash SHA-256 dos membros obrigatórios da chave, usado como "kid"
+    # kid = thumbprint da chave (rfc 7638)
     canonical = json.dumps({"e": jwk["e"], "kty": jwk["kty"], "n": jwk["n"]}, separators=(",", ":"), sort_keys=True)
     digest = hashlib.sha256(canonical.encode()).digest()
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
@@ -43,3 +42,18 @@ def sign_token(claims, signing_key, *, issuer, audience, ttl_seconds, now=None):
 
 def to_jwks(signing_key):
     return {"keys": [signing_key.jwk]}
+
+
+def load_public_key(public_key_pem):
+    return load_pem_public_key(public_key_pem.encode())
+
+
+def verify_token(token, public_key, *, issuer, audience):
+    return jwt.decode(
+        token,
+        public_key,
+        algorithms=["RS256"],
+        issuer=issuer,
+        audience=audience,
+        options={"require": ["exp", "iat", "iss", "aud", "sub"]},
+    )

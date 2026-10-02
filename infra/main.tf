@@ -1,10 +1,6 @@
 data "aws_caller_identity" "current" {}
 
-# ---------------------------------------------------------------------------
-# Chave de assinatura do JWT (RS256)
-# A privada fica no Secrets Manager; a pública é exposta pela própria função em
-# /.well-known/jwks.json para a aplicação validar os tokens.
-# ---------------------------------------------------------------------------
+# chave do jwt, a privada fica no secrets manager
 resource "tls_private_key" "jwt" {
   algorithm = "RSA"
   rsa_bits  = 2048
@@ -21,9 +17,6 @@ resource "aws_secretsmanager_secret_version" "jwt_signing_key" {
   secret_string = tls_private_key.jwt.private_key_pem
 }
 
-# ---------------------------------------------------------------------------
-# IAM
-# ---------------------------------------------------------------------------
 data "aws_iam_policy_document" "assume_role" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -63,9 +56,7 @@ resource "aws_iam_role_policy" "secrets" {
   policy = data.aws_iam_policy_document.secrets.json
 }
 
-# ---------------------------------------------------------------------------
-# Rede (opcional): a função entra na VPC para alcançar o RDS privado
-# ---------------------------------------------------------------------------
+# só cria se tiver subnet (lambda na vpc do rds)
 resource "aws_security_group" "lambda" {
   count       = local.in_vpc ? 1 : 0
   name        = "${var.function_name}-sg"
@@ -104,10 +95,7 @@ resource "aws_vpc_endpoint" "secretsmanager" {
   private_dns_enabled = true
 }
 
-# ---------------------------------------------------------------------------
-# Lambda
-# O pacote é gerado em ../build pelo scripts/build.sh antes do terraform plan/apply.
-# ---------------------------------------------------------------------------
+# ../build é gerado pelo scripts/build.sh
 data "archive_file" "lambda" {
   type        = "zip"
   source_dir  = "${path.module}/../build"
@@ -164,11 +152,64 @@ resource "aws_lambda_function" "auth" {
   ]
 }
 
-# Permite que qualquer API Gateway da conta invoque a função (a integração fica no repo do Gateway)
+# integração fica no repo do gateway
 resource "aws_lambda_permission" "api_gateway" {
   statement_id  = "AllowAPIGatewayInvoke"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.auth.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "arn:aws:execute-api:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*/*/*"
+}
+
+# authorizer, mesmo zip, só precisa da chave pública
+resource "aws_iam_role" "authorizer" {
+  name               = "${local.authorizer_name}-role"
+  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+}
+
+resource "aws_iam_role_policy_attachment" "authorizer_basic_execution" {
+  role       = aws_iam_role.authorizer.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_cloudwatch_log_group" "authorizer" {
+  name              = "/aws/lambda/${local.authorizer_name}"
+  retention_in_days = var.log_retention_days
+}
+
+resource "aws_lambda_function" "authorizer" {
+  function_name    = local.authorizer_name
+  description      = "Lambda Authorizer: valida o JWT emitido pela ${var.function_name}"
+  role             = aws_iam_role.authorizer.arn
+  runtime          = "python3.12"
+  architectures    = ["x86_64"]
+  handler          = "authorizer.lambda_handler"
+  memory_size      = 128
+  timeout          = 5
+  filename         = data.archive_file.lambda.output_path
+  source_code_hash = data.archive_file.lambda.output_base64sha256
+
+  environment {
+    variables = {
+      SERVICE_NAME       = local.authorizer_name
+      JWT_PUBLIC_KEY_PEM = tls_private_key.jwt.public_key_pem
+      JWT_ISSUER         = var.jwt_issuer
+      JWT_AUDIENCE       = var.jwt_audience
+    }
+  }
+
+  tags = merge(local.function_tags, { service = local.authorizer_name })
+
+  depends_on = [
+    aws_cloudwatch_log_group.authorizer,
+    aws_iam_role_policy_attachment.authorizer_basic_execution,
+  ]
+}
+
+resource "aws_lambda_permission" "authorizer_api_gateway" {
+  statement_id  = "AllowAPIGatewayInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.authorizer.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "arn:aws:execute-api:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*/*"
 }

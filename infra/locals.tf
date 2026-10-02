@@ -15,6 +15,8 @@ locals {
     service  = var.function_name
   })
 
+  authorizer_name = "${var.function_name}-authorizer"
+
   in_vpc = length(var.subnet_ids) > 0
 
   readable_secret_arns = compact([

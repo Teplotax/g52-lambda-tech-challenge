@@ -1,4 +1,3 @@
-"""Configuração da função a partir das variáveis de ambiente (definidas pelo Terraform)."""
 import os
 from dataclasses import dataclass
 

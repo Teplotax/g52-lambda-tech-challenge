@@ -1,9 +1,4 @@
-"""Entrypoint da Function Serverless de autenticação por CPF.
-
-Rotas (expostas pelo API Gateway):
-  POST /auth                    -> {"cpf": "..."}  => JWT
-  GET  /.well-known/jwks.json   -> chave pública para validação do JWT (aplicação / Gateway)
-"""
+# POST /auth e GET /.well-known/jwks.json
 import uuid
 
 from auth.config import Settings

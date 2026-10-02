@@ -1,6 +1,5 @@
 #!/bin/sh
-# Monta o pacote da Lambda em ./build (zipado pelo Terraform via archive_file).
-# Dependências instaladas para Linux x86_64 / Python 3.12, compatíveis com o runtime da Lambda.
+# gera ./build pro terraform zipar (deps pra linux x86_64 / py3.12)
 set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -21,7 +20,7 @@ pip install \
 cp -r "$ROOT/src/." "$BUILD/"
 find "$BUILD" -type d -name "__pycache__" -prune -exec rm -rf {} +
 
-# CA bundle do RDS para conexão TLS verificada com o banco gerenciado
+# ca do rds pra conexão com ssl
 curl -sSfL https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem -o "$BUILD/rds-ca-bundle.pem"
 
 echo "Build gerado em $BUILD"

@@ -6,7 +6,7 @@ output "function_arn" {
   value = aws_lambda_function.auth.arn
 }
 
-# Usado pelo API Gateway na integração AWS_PROXY das rotas /auth e /.well-known/jwks.json
+# usado no contrato do gateway
 output "invoke_arn" {
   value = aws_lambda_function.auth.invoke_arn
 }
@@ -15,7 +15,15 @@ output "jwt_signing_key_secret_arn" {
   value = aws_secretsmanager_secret.jwt_signing_key.arn
 }
 
-# Liberar no security group do RDS (ingress 5432 a partir deste SG)
+# liberar 5432 no sg do rds
 output "security_group_id" {
   value = local.in_vpc ? aws_security_group.lambda[0].id : null
+}
+
+output "authorizer_function_name" {
+  value = aws_lambda_function.authorizer.function_name
+}
+
+output "authorizer_invoke_arn" {
+  value = aws_lambda_function.authorizer.invoke_arn
 }
