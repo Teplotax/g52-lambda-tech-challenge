@@ -50,7 +50,7 @@ sequenceDiagram
 ```
                       ┌──────────────── VPC (subnets do RDS) ────────────────┐
 API Gateway ──invoke──▶ Lambda (python3.12) ──5432/TLS──▶ RDS PostgreSQL     │
-                      │   SG lambda + SG g52-rds-tech-challenge-clients      │
+                      │   SG lambda + SG g52-rds-tech-challenge-{env}-clients│
                       └──────────────────────────────────────────────────────┘
                              └─────────▶ CloudWatch Logs (JSON estruturado)
 ```
@@ -103,10 +103,10 @@ grant_type=client_credentials&client_id=g52-oficina-admin&client_secret=<secret>
 | `400` | `grant_type` diferente de `client_credentials` |
 | `401` | `client_id` ou `client_secret` inválido |
 
-O `client_secret` é gerado pelo Terraform e fica no secret `g52-lambda-auth/admin-client`. A função recebe só o hash SHA-256 dele por variável de ambiente e compara em tempo constante:
+O `client_secret` é gerado pelo Terraform e fica no secret `g52-lambda-auth-<ambiente>/admin-client`. A função recebe só o hash SHA-256 dele por variável de ambiente e compara em tempo constante:
 
 ```bash
-aws secretsmanager get-secret-value --secret-id g52-lambda-auth/admin-client --query SecretString --output text
+aws secretsmanager get-secret-value --secret-id g52-lambda-auth-dev/admin-client --query SecretString --output text
 ```
 
 ### `GET /.well-known/jwks.json`
@@ -163,9 +163,9 @@ Para gerar o pacote da Lambda (o mesmo usado pelo pipeline), rode `sh scripts/bu
 | `data.aws_db_instance` / `data.aws_secretsmanager_secret_version` / `data.aws_db_subnet_group` | Endpoint, credenciais e subnets do RDS (repositório `g52-infra-rds-tech-challenge`) |
 | `aws_iam_role.lambda` | Execução básica e acesso à VPC |
 | `aws_cloudwatch_log_group.lambda` | Logs com retenção configurável |
-| `aws_security_group.lambda` | SG da função (saída liberada). A função também anexa o SG `g52-rds-tech-challenge-clients`, o único aceito pelo RDS |
+| `aws_security_group.lambda` | SG da função (saída liberada). A função também anexa o SG `g52-rds-tech-challenge-<ambiente>-clients`, o único aceito pelo RDS |
 | `aws_lambda_permission.api_gateway` | Permite que o API Gateway invoque a função |
-| `aws_lambda_function.authorizer` | `g52-lambda-auth-authorizer`, handler `authorizer.lambda_handler`, recebe a chave pública por variável de ambiente (sem acesso a segredos ou ao banco, fora da VPC) |
+| `aws_lambda_function.authorizer` | `g52-lambda-auth-<ambiente>-authorizer`, handler `authorizer.lambda_handler`, recebe a chave pública por variável de ambiente (sem acesso a segredos ou ao banco, fora da VPC) |
 | `aws_iam_role.authorizer` | Somente execução básica (logs) |
 | `random_password.admin_client_secret` + `aws_secretsmanager_secret.admin_client` | Credencial `client_credentials` do token administrativo |
 
@@ -201,15 +201,31 @@ feature/** -> develop -> release/vX.X.X -> main
 | Workflow | Gatilho | Ação |
 |---|---|---|
 | `1-feature-to-dev.yml` | Push em `feature/**` | Abre PR automático para `develop` |
-| `2-dev-to-release.yml` | Push/PR em `develop` | Testes (pytest), build do pacote, `terraform plan` (PR) ou `apply/destroy` (push), smoke test do JWKS; cria branch e PR `release/vX.X.X` |
-| `4-release-to-main.yml` | PR fechado em `release/**` | Abre PR automático da release para `main` |
+| `2-dev-to-release.yml` | Push/PR em `develop` | Deploy em **dev**: testes (pytest), build do pacote, `terraform plan` (PR) ou `apply/destroy` (push) e smoke test do JWKS; cria branch e PR `release/vX.X.X` |
+| `4-release-to-main.yml` | Merge em `release/**` | Deploy em **hom** e abre PR da release para `main` |
+| `5-main-to-prod.yml` | Push em `main` | Deploy em **prod** |
+| `deploy.yml` | Chamado pelos anteriores | Deploy reutilizável, parametrizado por ambiente |
 
-A autenticação com a AWS é feita via **OIDC** com o role `github-actions-terraform-dev`. A única configuração do repositório é a variável `AWS_ACCOUNT_ID`.
+A autenticação com a AWS é feita via **OIDC** com o role `github-actions-terraform-dev`.
+
+### Ambientes
+
+| Ambiente | Branch | Quando sobe | `destroy` padrão | Configuração |
+|---|---|---|---|---|
+| **dev** | `develop` | Push em `develop` | `true` (sobe só quando precisa) | `infra/inventories/dev` (`g52-lambda-auth-dev`, banco `g52-rds-tech-challenge-dev`) |
+| **hom** | `release/*` | Merge do PR `develop` → `release/*` | `false` (fica no ar) | `infra/inventories/hom` (`g52-lambda-auth-hom`, banco `g52-rds-tech-challenge-hom`) |
+| **prod** | `main` | Merge do PR `release/*` → `main` | `true` (ligado só para demonstração) | `infra/inventories/prod` (`g52-lambda-auth-prod`, banco `g52-rds-tech-challenge-prod`) |
+
+O deploy fica no workflow reutilizável `deploy.yml`, chamado pelos três gatilhos com o ambiente como parâmetro. Cada ambiente usa o ambiente de mesmo nome no GitHub (`Settings → Environments`), com a variável `AWS_ACCOUNT_ID`. O state do Terraform fica no bucket `g52-terraform-state-dev-<account>`, na chave `<ambiente>/...`.
+
+A branch `main` é protegida: não aceita push direto, e o merge só acontece por Pull Request.
+
+Cada ambiente tem sua própria chave de assinatura e seu próprio `client_secret` administrativo (`g52-lambda-auth-<ambiente>/admin-client`). Um token de um ambiente não vale nos outros.
 
 ## Testando o deploy
 
 ```bash
-aws lambda invoke --function-name g52-lambda-auth \
+aws lambda invoke --function-name g52-lambda-auth-dev \
   --cli-binary-format raw-in-base64-out \
   --payload '{"httpMethod":"POST","path":"/auth","headers":{},"body":"{\"cpf\":\"55563271064\"}"}' \
   response.json && cat response.json
