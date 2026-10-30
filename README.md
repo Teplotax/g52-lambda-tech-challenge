@@ -19,6 +19,27 @@ A chave pública de validação do token é publicada em formato **JWKS**. Assim
 
 O mesmo pacote também traz o **Lambda Authorizer** (`authorizer.lambda_handler`). É uma segunda função, do tipo TOKEN, que o API Gateway chama antes de encaminhar as rotas protegidas. Ela valida a assinatura, a expiração, o emissor e a audiência do JWT, e responde `401` quando o token for inválido. A policy devolvida libera só as rotas da role do token: um token de cliente numa rota administrativa recebe `403` do próprio Gateway. A aplicação repete essa checagem e ainda garante que o cliente só acesse as próprias OS.
 
+## Links
+
+| | |
+|---|---|
+| Documentação da API (Swagger) | https://teplotax.github.io/doc-api-tech-challenge-v1/ |
+| Collection Postman/Insomnia | Enviada no PDF de entrega, porque contém CPFs de teste do seed |
+| Arquitetura da solução (diagramas, RFCs, ADRs) | [`g52-app-tech-challenge/docs/arquitetura`](https://github.com/Teplotax/g52-app-tech-challenge/tree/main/docs/arquitetura) |
+| Pipelines | [GitHub Actions](https://github.com/Teplotax/g52-lambda-tech-challenge/actions) |
+
+### Deploys
+
+Todos os ambientes respondem pelo mesmo API Gateway, com um stage por ambiente:
+
+| Ambiente | URL base | Healthcheck |
+|---|---|---|
+| dev | https://08onkvn4jb.execute-api.us-east-1.amazonaws.com/dev | [`/dev/health`](https://08onkvn4jb.execute-api.us-east-1.amazonaws.com/dev/health) |
+| hom | https://08onkvn4jb.execute-api.us-east-1.amazonaws.com/hom | [`/hom/health`](https://08onkvn4jb.execute-api.us-east-1.amazonaws.com/hom/health) |
+| prod | https://08onkvn4jb.execute-api.us-east-1.amazonaws.com/prod | [`/prod/health`](https://08onkvn4jb.execute-api.us-east-1.amazonaws.com/prod/health) |
+
+Para economizar, os ambientes ficam desligados quando não estão em uso ([ADR-003](https://github.com/Teplotax/g52-app-tech-challenge/blob/main/docs/arquitetura/adrs/ADR-003-ambientes.md)). O healthcheck mostra se um ambiente está no ar.
+
 ## Arquitetura
 
 ```mermaid
@@ -55,7 +76,7 @@ API Gateway ──invoke──▶ Lambda (python3.12) ──5432/TLS──▶ RD
                              └─────────▶ CloudWatch Logs (JSON estruturado)
 ```
 
-A função roda na VPC do RDS para alcançar o banco privado. Essas subnets não têm NAT, então a função não consegue chamar o Secrets Manager em runtime. Por isso a chave privada do JWT e as credenciais do banco chegam por variável de ambiente, que a Lambda guarda criptografada em repouso com KMS. O Terraform lê as credenciais do secret `g52-rds-tech-challenge/credentials` no deploy.
+A função roda na VPC do RDS para alcançar o banco privado. Essas subnets não têm NAT, então a função não consegue chamar o Secrets Manager em runtime. Por isso a chave privada do JWT e as credenciais do banco chegam por variável de ambiente, que a Lambda guarda criptografada em repouso com KMS. O Terraform lê as credenciais do secret `g52-rds-tech-challenge-<ambiente>/credentials` no deploy. Decisão registrada no [ADR-004](https://github.com/Teplotax/g52-app-tech-challenge/blob/main/docs/arquitetura/adrs/ADR-004-segredos-da-lambda.md).
 
 ## Contrato
 
@@ -192,7 +213,7 @@ O RDS precisa existir antes do deploy desta função, porque o `terraform plan` 
 | `security_group_id` | SG da função |
 | `authorizer_function_name` / `authorizer_invoke_arn` | Authorizer referenciado no `securitySchemes` do contrato OpenAPI |
 
-## Pipeline CI/CD
+## Deploy (CI/CD)
 
 ```
 feature/** -> develop -> release/vX.X.X -> main
@@ -200,11 +221,11 @@ feature/** -> develop -> release/vX.X.X -> main
 
 | Workflow | Gatilho | Ação |
 |---|---|---|
-| `1-feature-to-dev.yml` | Push em `feature/**` | Abre PR automático para `develop` |
-| `2-dev-to-release.yml` | Push/PR em `develop` | Deploy em **dev**: testes (pytest), build do pacote, `terraform plan` (PR) ou `apply/destroy` (push) e smoke test do JWKS; cria branch e PR `release/vX.X.X` |
-| `4-release-to-main.yml` | Merge em `release/**` | Deploy em **hom** e abre PR da release para `main` |
-| `5-main-to-prod.yml` | Push em `main` | Deploy em **prod** |
-| `deploy.yml` | Chamado pelos anteriores | Deploy reutilizável, parametrizado por ambiente |
+| `1 - [FEAT] Build & PR` | Push em `feature/**` | Abre PR automático para `develop` |
+| `2 - [DEV] Build and Deploy` | Merge em `develop` | Deploy em **dev**: testes (pytest), build do pacote, `terraform apply` (ou `destroy`) e smoke test do JWKS; cria a branch e o PR `release/vX.X.X` |
+| `3 - [HOM] Deploy & Promote` | Merge do PR em `release/**` | Deploy em **hom** e abre o PR da release para `main` |
+| `5 - [PROD] Deploy` | Merge em `main` | Deploy em **prod** |
+| `Deploy` (`deploy.yml`) | Chamado pelos anteriores | Deploy reutilizável, parametrizado por ambiente |
 
 A autenticação com a AWS é feita via **OIDC** com o role `github-actions-terraform-dev`.
 
@@ -224,9 +245,30 @@ Cada ambiente tem sua própria chave de assinatura e seu próprio `client_secret
 
 ## Testando o deploy
 
+Pelo API Gateway (o CPF é de um cliente do seed):
+
+```bash
+curl -s -X POST https://08onkvn4jb.execute-api.us-east-1.amazonaws.com/dev/auth \
+  -H "Content-Type: application/json" -d '{"cpf": "555.632.710-64"}'
+```
+
+Direto na função, sem passar pelo Gateway:
+
 ```bash
 aws lambda invoke --function-name g52-lambda-auth-dev \
   --cli-binary-format raw-in-base64-out \
   --payload '{"httpMethod":"POST","path":"/auth","headers":{},"body":"{\"cpf\":\"55563271064\"}"}' \
   response.json && cat response.json
 ```
+
+## Repositórios do projeto
+
+| Repositório | Conteúdo |
+|---|---|
+| [g52-app-tech-challenge](https://github.com/Teplotax/g52-app-tech-challenge) | Aplicação Spring Boot, manifestos Kubernetes e documentação de arquitetura |
+| **g52-lambda-tech-challenge** (este) | Function Serverless de autenticação (CPF e `client_credentials`) e Lambda Authorizer |
+| [g52-infra-eks-tech-challenge](https://github.com/Teplotax/g52-infra-eks-tech-challenge) | Cluster EKS, ECR, add-ons e observabilidade (New Relic) |
+| [g52-infra-rds-tech-challenge](https://github.com/Teplotax/g52-infra-rds-tech-challenge) | Banco gerenciado (RDS PostgreSQL) e modelo de dados |
+| [g52-infra-gateway-tech-challenge](https://github.com/Teplotax/g52-infra-gateway-tech-challenge) | REST API do API Gateway e roles da conta |
+| [g52-api-tech-challenge-v1-ext](https://github.com/Teplotax/g52-api-tech-challenge-v1-ext) | Contrato OpenAPI importado no API Gateway (stages dev/hom/prod) |
+| [doc-api-tech-challenge-v1](https://github.com/Teplotax/doc-api-tech-challenge-v1) | Swagger publicado no GitHub Pages |

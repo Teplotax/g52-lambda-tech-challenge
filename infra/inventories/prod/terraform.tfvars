@@ -1,7 +1,7 @@
 environment   = "prod"
 function_name = "g52-lambda-auth-prod"
 aws_region    = "us-east-1"
-destroy       = true
+destroy       = false
 
 # jwt
 jwt_issuer      = "g52-lambda-auth"
