@@ -22,6 +22,8 @@ def _extract_token(authorization):
 
 # rotas que o token de cliente (cpf) pode chamar; o resto é só admin
 CLIENTE_ROUTES = [
+    "GET/clientes/documento/*",
+    "GET/clientes/documento/*/veiculos",
     "GET/ordensDeServico",
     "GET/ordensDeServico/*",
     "POST/ordensDeServico/*/aprovar",
