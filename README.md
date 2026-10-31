@@ -12,7 +12,7 @@ Ela também emite o **token administrativo** da equipe da oficina (grant `client
 
 | Token | Como obter | `roles` | O que acessa |
 |---|---|---|---|
-| Cliente | `POST /auth` com `{"cpf"}` | `["CLIENTE"]` | Consultar as próprias OS e aprovar o orçamento (`GET /ordensDeServico`, `GET /ordensDeServico/{id}`, `POST /ordensDeServico/{id}/aprovar`) |
+| Cliente | `POST /auth` com `{"cpf"}` | `["CLIENTE"]` | Consultar o próprio cadastro e os próprios veículos (`GET /clientes/documento/{documento}`, `GET /clientes/documento/{documento}/veiculos`) e as próprias OS, e aprovar o orçamento (`GET /ordensDeServico`, `GET /ordensDeServico/{id}`, `POST /ordensDeServico/{id}/aprovar`) |
 | Administrativo | `POST /auth/token` com `client_credentials` | `["ADMIN"]` | Todas as rotas (cadastros, estoque, ciclo da OS) |
 
 A chave pública de validação do token é publicada em formato **JWKS**. Assim, a aplicação Spring Boot valida os tokens sem compartilhar segredos.

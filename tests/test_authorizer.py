@@ -37,13 +37,15 @@ def test_token_admin_libera_todas_as_rotas_do_stage(signing_key, public_key):
     assert statement["Resource"] == [f"{STAGE}/*/*"]
 
 
-def test_token_cliente_libera_so_consulta_e_aprovacao_de_os(signing_key, public_key):
+def test_token_cliente_libera_so_proprio_cadastro_e_os(signing_key, public_key):
     result = authorize(f"Bearer {token(signing_key)}", public_key)
 
     statement = result["policyDocument"]["Statement"][0]
     assert result["principalId"] == "1"
     assert statement["Effect"] == "Allow"
     assert statement["Resource"] == [
+        f"{STAGE}/GET/clientes/documento/*",
+        f"{STAGE}/GET/clientes/documento/*/veiculos",
         f"{STAGE}/GET/ordensDeServico",
         f"{STAGE}/GET/ordensDeServico/*",
         f"{STAGE}/POST/ordensDeServico/*/aprovar",
